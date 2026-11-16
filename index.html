@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Staff Tracker – Admin</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:#f1f5f9;color:#0f172a}
+header{background:#0f766e;color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center}
+header b{font-size:20px}main{max-width:1100px;margin:0 auto;padding:16px}
+.card{background:#fff;border-radius:16px;padding:16px;box-shadow:0 1px 4px #0001;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stats .card{margin:0;text-align:center}.stats b{display:block;font-size:30px;color:#0f766e}.stats span{color:#64748b;font-size:13px}
+#map{height:420px;border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;text-align:left;border-bottom:1px solid #e2e8f0}th{color:#64748b}
+.sc{overflow-x:auto}.b{padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:#e2e8f0}.g{background:#ccfbf1;color:#0f766e}.o{background:#fef3c7;color:#92400e}.r{background:#fee2e2;color:#b91c1c}
+input,button{font:inherit;padding:10px 12px;border-radius:10px;border:1px solid #cbd5e1}button{background:#0f766e;color:#fff;border:0;font-weight:600;cursor:pointer}
+#login{max-width:380px;margin:12vh auto;padding:0 16px}#login input{width:100%;margin-bottom:10px}#login button{width:100%}#err{color:#b91c1c;margin-top:8px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}h2{margin:0 0 10px;font-size:17px}
+</style></head><body>
+<div id="login"><div class="card"><h2>📍 Staff Tracker – Admin login</h2>
+<input id="em" type="email" placeholder="Admin email"><input id="pw" type="password" placeholder="Password"><button id="go">Sign in</button><div id="err"></div></div></div>
+<div id="app" hidden>
+<header><b>📍 Staff Tracker – Live Dashboard</b><button id="out" style="background:#115e59">Logout</button></header>
+<main>
+<div class="stats"><div class="card"><b id="s1">-</b><span>Registered</span></div><div class="card"><b id="s2">-</b><span>Present today</span></div><div class="card"><b id="s3">-</b><span>Active now</span></div><div class="card"><b id="s4">-</b><span>KM today</span></div></div>
+<div class="card"><h2>Live map</h2><div id="map"></div></div>
+<div class="card"><h2>Today’s check-ins</h2><div class="sc"><table><thead><tr><th>Employee</th><th>Check-in</th><th>Check-out</th><th>KM</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div></div>
+<div class="card"><h2>Monthly report</h2><div class="row"><input id="mo" type="month"><button id="dl">Download CSV</button></div>
+<div class="sc"><table><thead><tr><th>Employee</th><th>Days</th><th>Hours</th><th>KM</th><th>Late</th></tr></thead><tbody id="mt"></tbody></table></div></div>
+</main></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,collection,doc,getDoc,getDocs,onSnapshot,query,where} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// >>> Paste YOUR Firebase web config here (Firebase console > Project settings > Your apps > Web app) <<<
+const cfg = {
+  apiKey: "AIzaSyA0JmEWQakVR5Yp8Z3E8NyX-Xz6Y_nE1eE", authDomain: "stafftracker-4e845.firebaseapp.com", projectId: "stafftracker-4e845",
+  storageBucket: "stafftracker-4e845.firebasestorage.app", messagingSenderId: "482743701579", appId: "1:482743701579:web:8225e02e6467d61c2cbdce"
+};
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const f=t=>t?new Date(t).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"-";
+const dayStart=()=>{const d=new Date();d.setHours(0,0,0,0);return d.getTime()};
+const auth=getAuth(initializeApp(cfg)),db=getFirestore(auth.app);
+let live=[],done=[],users=0,map,layer,fitted=false,started=false,csv="";
+
+$("#go").onclick=()=>signInWithEmailAndPassword(auth,$("#em").value.trim(),$("#pw").value).catch(e=>$("#err").textContent=e.message);
+$("#out").onclick=()=>signOut(auth);
+onAuthStateChanged(auth,async u=>{
+  if(!u){$("#login").hidden=false;$("#app").hidden=true;return}
+  const r=await getDoc(doc(db,"users",u.uid));
+  if(!r.exists()||r.data().role!=="admin"){$("#err").textContent="Admin access only.";signOut(auth);return}
+  $("#login").hidden=true;$("#app").hidden=false;start();
+});
+
+function start(){
+  if(started)return;started=true;
+  map=L.map("map").setView([20.59,78.96],5);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+  layer=L.layerGroup().addTo(map);
+  onSnapshot(collection(db,"live"),s=>{live=s.docs.map(d=>({id:d.id,...d.data()}));render()});
+  onSnapshot(query(collection(db,"logs"),where("inAt",">=",dayStart())),s=>{done=s.docs.map(d=>d.data());render()});
+  getDocs(collection(db,"users")).then(s=>{users=s.docs.filter(d=>d.data().role!=="admin").length;render()});
+  $("#mo").value=new Date().toISOString().slice(0,7);$("#mo").onchange=month;month();
+  setInterval(render,30000);
+}
+function render(){
+  layer.clearLayers();const pts=[],ids=new Set(),now=Date.now();let km=0,rows="";
+  live.forEach(d=>{
+    ids.add(d.id);km+=d.km||0;const stale=now-(d.t||0)>180000;
+    if(d.path&&d.path.length>1)L.polyline(d.path.map(p=>p.split(",").map(Number)),{color:"#0f766e",weight:4}).addTo(layer);
+    if(d.lat!=null){L.marker([d.lat,d.lng]).bindTooltip(esc(d.name),{permanent:true,direction:"top"}).addTo(layer);pts.push([d.lat,d.lng])}
+    rows+=`<tr><td>${esc(d.name)}</td><td>${f(d.inAt)}</td><td>-</td><td>${(d.km||0).toFixed(1)}</td><td><span class="b ${stale?"o":"g"}">${stale?"No signal":"Live"}</span>${d.late?' <span class="b r">Late</span>':""}</td></tr>`;
+  });
+  done.forEach(d=>{
+    ids.add(d.uid);km+=d.km||0;
+    rows+=`<tr><td>${esc(d.name)}</td><td>${f(d.inAt)}</td><td>${f(d.outAt)}</td><td>${(d.km||0).toFixed(1)}</td><td><span class="b">Completed</span>${d.late?' <span class="b r">Late</span>':""}</td></tr>`;
+  });
+  $("#s1").textContent=users;$("#s2").textContent=ids.size;$("#s3").textContent=live.length;$("#s4").textContent=km.toFixed(1);
+  $("#tb").innerHTML=rows||'<tr><td colspan="5">No check-ins yet today.</td></tr>';
+  if(!fitted&&pts.length){fitted=true;pts.length>1?map.fitBounds(pts,{padding:[40,40]}):map.setView(pts[0],16)}
+}
+async function month(){
+  const [y,m]=$("#mo").value.split("-").map(Number),s=new Date(y,m-1,1).getTime(),e=new Date(y,m,1).getTime();
+  const q=await getDocs(query(collection(db,"logs"),where("inAt",">=",s),where("inAt","<",e)));
+  const agg={};csv="Name,Date,In,Out,Hours,KM,Late\n";
+  q.docs.map(d=>d.data()).sort((a,b)=>a.inAt-b.inAt).forEach(d=>{
+    const h=((d.outAt||d.inAt)-d.inAt)/36e5,a=agg[d.name]||(agg[d.name]={d:0,h:0,km:0,l:0});
+    a.d++;a.h+=h;a.km+=d.km||0;if(d.late)a.l++;
+    csv+=[String(d.name).replace(/,/g," "),new Date(d.inAt).toLocaleDateString("en-IN"),f(d.inAt),f(d.outAt),h.toFixed(2),(d.km||0).toFixed(2),d.late?"Yes":"No"].join(",")+"\n";
+  });
+  $("#mt").innerHTML=Object.entries(agg).map(([n,a])=>`<tr><td>${esc(n)}</td><td>${a.d}</td><td>${a.h.toFixed(1)}</td><td>${a.km.toFixed(1)}</td><td>${a.l}</td></tr>`).join("")||'<tr><td colspan="5">No records for this month.</td></tr>';
+}
+$("#dl").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+csv],{type:"text/csv"}));a.download="attendance-"+$("#mo").value+".csv";a.click()};
+</script></body></html>
