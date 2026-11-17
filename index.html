@@ -60,7 +60,7 @@ function start(){
   map=L.map("map").setView([20.59,78.96],5);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
   layer=L.layerGroup().addTo(map);
-  onSnapshot(collection(db,"live"),s=>{live=s.docs.map(d=>({id:d.id,...d.data()}));render()});
+  onSnapshot(collection(db,"live"),s=>{live=s.docs.map(d=>({id:d.id,...d.data()})).filter(d=>(d.inAt||0)>=dayStart());render());
   onSnapshot(query(collection(db,"logs"),where("inAt",">=",dayStart())),s=>{done=s.docs.map(d=>d.data());render()});
   getDocs(collection(db,"users")).then(s=>{users=s.docs.filter(d=>d.data().role!=="admin").length;render()});
   $("#mo").value=new Date().toISOString().slice(0,7);$("#mo").onchange=month;month();
