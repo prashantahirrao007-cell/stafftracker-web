@@ -36,7 +36,7 @@ import {getFirestore,collection,doc,getDoc,getDocs,onSnapshot,query,where} from 
 let cfg;
 try { ({cfg} = await import("./config.js")); }
 catch (e) { document.body.innerHTML = '<p style="padding:20px;font:16px sans-serif">config.js file not found. Upload config.js in the same folder as index.html.</p>'; throw e; }
-if (String(cfg.apiKey).includes("PASTE_HERE")) { document.body.innerHTML = '<p style="padding:20px;font:16px sans-serif">Open config.js and paste your Firebase values.</p>'; throw new Error("config"); }
+if (String(cfg.apiKey).includes("AIzaSyA0JmEWQakVR5Yp8Z3E8NyX-Xz6Y_nE1eE")) { document.body.innerHTML = '<p style="padding:20px;font:16px sans-serif">Open config.js and paste your Firebase values.</p>'; throw new Error("config"); }
 
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
