@@ -33,11 +33,10 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,collection,doc,getDoc,getDocs,onSnapshot,query,where} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// >>> Paste YOUR Firebase web config here (Firebase console > Project settings > Your apps > Web app) <<<
-const cfg = {
-  apiKey: "AIzaSyA0JmEWQakVR5Yp8Z3E8NyX-Xz6Y_nE1eE", authDomain: "stafftracker-4e845.firebaseapp.com", projectId: "stafftracker-4e845",
-  storageBucket: "stafftracker-4e845.firebasestorage.app", messagingSenderId: "482743701579", appId: "1:482743701579:web:8225e02e6467d61c2cbdce"
-};
+let cfg;
+try { ({cfg} = await import("./config.js")); }
+catch (e) { document.body.innerHTML = '<p style="padding:20px;font:16px sans-serif">config.js file not found. Upload config.js in the same folder as index.html.</p>'; throw e; }
+if (String(cfg.apiKey).includes("PASTE_HERE")) { document.body.innerHTML = '<p style="padding:20px;font:16px sans-serif">Open config.js and paste your Firebase values.</p>'; throw new Error("config"); }
 
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -46,11 +45,11 @@ const dayStart=()=>{const d=new Date();d.setHours(0,0,0,0);return d.getTime()};
 const auth=getAuth(initializeApp(cfg)),db=getFirestore(auth.app);
 let live=[],done=[],users=0,map,layer,fitted=false,started=false,csv="";
 
-$("#go").onclick=()=>signInWithEmailAndPassword(auth,$("#em").value.trim(),$("#pw").value).catch(e=>$("#err").textContent=e.message);
+$("#go").onclick=()=>signInWithEmailAndPassword(auth,$("#em").value.trim(),$("#pw").value).catch(e=>$("#err").textContent=(e.code||"")+" "+e.message);
 $("#out").onclick=()=>signOut(auth);
 onAuthStateChanged(auth,async u=>{
   if(!u){$("#login").hidden=false;$("#app").hidden=true;return}
-  const r=await getDoc(doc(db,"users",u.uid));
+  let r;try{r=await getDoc(doc(db,"users",u.uid))}catch(e){$("#err").textContent="Cannot read profile: "+(e.code||e.message);signOut(auth);return}
   if(!r.exists()||r.data().role!=="admin"){$("#err").textContent="Admin access only.";signOut(auth);return}
   $("#login").hidden=true;$("#app").hidden=false;start();
 });
@@ -60,7 +59,7 @@ function start(){
   map=L.map("map").setView([20.59,78.96],5);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
   layer=L.layerGroup().addTo(map);
-   onSnapshot(collection(db,"live"),s=>{live=s.docs.map(d=>({id:d.id,...d.data()}));render()});
+  onSnapshot(collection(db,"live"),s=>{live=s.docs.map(d=>({id:d.id,...d.data()})).filter(d=>(d.inAt||0)>=dayStart());render()});
   onSnapshot(query(collection(db,"logs"),where("inAt",">=",dayStart())),s=>{done=s.docs.map(d=>d.data());render()});
   getDocs(collection(db,"users")).then(s=>{users=s.docs.filter(d=>d.data().role!=="admin").length;render()});
   $("#mo").value=new Date().toISOString().slice(0,7);$("#mo").onchange=month;month();
@@ -70,8 +69,8 @@ function render(){
   layer.clearLayers();const pts=[],ids=new Set(),now=Date.now();let km=0,rows="";
   live.forEach(d=>{
     ids.add(d.id);km+=d.km||0;const stale=now-(d.t||0)>180000;
-    if(d.path&&d.path.length>1)L.polyline(d.path.map(p=>p.split(",").map(Number)),{color:"#0f766e",weight:4}).addTo(layer);
-    if(d.lat!=null){L.marker([d.lat,d.lng]).bindTooltip(esc(d.name),{permanent:true,direction:"top"}).addTo(layer);pts.push([d.lat,d.lng])}
+    if(d.path&&d.path.length){const ll=d.path.map(p=>p.split(",").map(Number));if(ll.length>1)L.polyline(ll,{color:"#dc2626",weight:2}).addTo(layer);ll.forEach(p=>L.circleMarker(p,{radius:4,color:"#fff",weight:1,fillColor:"#dc2626",fillOpacity:1}).addTo(layer))}
+    if(d.lat!=null){L.marker([d.lat,d.lng]).bindTooltip(esc(d.name)+" • "+(d.km||0).toFixed(1)+" km",{permanent:true,direction:"top"}).addTo(layer);pts.push([d.lat,d.lng])}
     rows+=`<tr><td>${esc(d.name)}</td><td>${f(d.inAt)}</td><td>-</td><td>${(d.km||0).toFixed(1)}</td><td><span class="b ${stale?"o":"g"}">${stale?"No signal":"Live"}</span>${d.late?' <span class="b r">Late</span>':""}</td></tr>`;
   });
   done.forEach(d=>{
